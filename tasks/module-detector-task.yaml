@@ -1,0 +1,102 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: detect-java-module
+  namespace: tap-tasks
+  annotations:
+    kapp.k14s.io/create-strategy: fallback-on-update
+spec:
+  description: |-
+    A task to detect which java module is impacted by the commit and will return
+    the url and revision if it should be built
+  stepTemplate:
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsUser: 1001
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: "RuntimeDefault"
+      runAsNonRoot: true
+  params:
+    - name: source-url
+    - name: source-revision
+    - name: prior-url
+    - name: prior-revision
+    - name: git-url
+    - name: git-branch
+    - name: module
+  results:
+    - name: url
+    - name: revision
+  steps:
+    - name: detect
+      image: cxscssa.azurecr.io/utils/module-detector-pipeline-image:0.2.6
+      env:
+        - name: "HOME"
+          value: "/tekton/home/"
+      script: |-
+        #!/usr/bin/env bash
+        
+        # new workload/no history, lets short circuit and build no matter what
+        if [ -z "$(params.prior-url)" ]; then
+          echo -n "$(params.source-url)" > $(results.url.path)
+          echo -n "$(params.source-revision)" > $(results.revision.path)
+        else
+          # need to re-assign to temp var due to tekton script substitution
+          rev=$(params.prior-revision)
+          url=$(params.prior-url)
+          
+          # need to cleanup the prior run inputs due to having new lines within it
+          priorRevision=$(echo -n $rev | tr -d '\n')
+          priorUrl=$(echo -n $url | tr -d '\n')
+
+          # lets check to see if we are re-running with the same inputs/outputs to short circuit 
+          if [[ "$(params.source-revision)" == "priorRevision" ]]; then
+            echo -n "$(params.source-url)" > $(results.url.path)
+            echo -n "$(params.source-revision)" > $(results.revision.path)
+          else
+            # prepare credentials
+            ssh_config_file=$(mktemp)
+        
+            echo "
+            UserKnownHostsFile /tekton/creds/.ssh/known_hosts
+            Include $(credentials.path)/.ssh/config
+            " > $ssh_config_file
+            
+            export GIT_SSH_COMMAND="ssh -F $ssh_config_file"
+            
+            cd `mktemp -d`
+            
+            # clone our repo and adjust to expected branch
+            git clone "$(params.git-url)" ./repo && cd ./repo
+            git checkout "$(params.git-branch)"
+            
+            # run gradle and store output
+            GRADLE_OUTPUT=$(gradle printProjectsImpacted -Paffected_module_detector.enable --no-daemon)
+            MODULE_DETECTED=$(echo $GRADLE_OUTPUT | grep -i $(params.module))
+            
+            # print for logging
+            echo "$GRADLE_OUTPUT"
+        
+            # determine if we need to build based on this change or not
+            if [ -z "$MODULE_DETECTED" ]; then
+              echo "$(params.module) not detected"
+              # return prior url/revision to ensure the supply chain stays healthy
+              # and no additional work is completed after this step
+              if [ -n "$(params.prior-url)" ]; then
+                echo -n "$priorUrl" > $(results.url.path)
+                echo -n "$priorRevision" > $(results.revision.path)        
+              fi
+            else
+              echo "$(params.module) is detected"
+              # return the input url/revision from the new commit so we pass it along
+              # to test, build, etc.
+              echo -n "$(params.source-url)" > $(results.url.path)
+              echo -n "$(params.source-revision)" > $(results.revision.path)
+            fi  
+          fi
+        fi
+        
+

@@ -1,0 +1,84 @@
+#@ load("@ytt:data", "data")
+---
+apiVersion: carto.run/v1alpha1
+kind: ClusterSourceTemplate
+metadata:
+  name: java-module-detector
+spec:
+  urlPath: .status.results[?(@.name=="url")].value
+  revisionPath: .status.results[?(@.name=="revision")].value
+
+  healthRule:
+    multiMatch:
+      healthy:
+        matchConditions:
+          - status: "True"
+            type: Succeeded
+      unhealthy:
+        matchConditions:
+          - status: "False"
+            type: Succeeded
+
+  lifecycle: tekton
+
+  #@ label_exclusions = "[\"" + "\", \"".join(["kapp.k14s.io/app", "kapp.k14s.io/association"]) + "\"]"
+  #@yaml/text-templated-strings
+  ytt: |
+    #@ load("@ytt:data", "data")
+
+    #@ def merge_labels(fixed_values):
+    #@   labels = {}
+    #@   if hasattr(data.values.workload.metadata, "labels"):
+    #@     exclusions = (@= label_exclusions @)
+    #@     for k,v in dict(data.values.workload.metadata.labels).items():
+    #@       if k not in exclusions:
+    #@         labels[k] = v
+    #@       end
+    #@     end
+    #@   end
+    #@   labels.update(fixed_values)
+    #@   return labels
+    #@ end
+
+    #@ def merged_tekton_params():
+    #@   params = []
+    #@   if hasattr(data.values, "params") and hasattr(data.values.params, "testing_pipeline_params"):
+    #@     for param in data.values.params["testing_pipeline_params"]:
+    #@       params.append({ "name": param, "value": data.values.params["testing_pipeline_params"][param] })
+    #@     end
+    #@   end
+    #@   resources = data.values.workload.status.resources
+    #@   priorUrl = ""
+    #@   priorRevision = ""
+    #@   if len(resources) > 2 and hasattr(resources[2], "outputs"):
+    #@     priorUrl = resources[2].outputs[0].preview
+    #@     priorRevision = resources[2].outputs[1].preview
+    #@   end
+    #@   params.append({ "name": "source-url", "value": data.values.sources.source.url })
+    #@   params.append({ "name": "source-revision", "value": data.values.sources.source.revision })
+    #@   params.append({ "name": "prior-url", "value": priorUrl })
+    #@   params.append({ "name": "prior-revision", "value": priorRevision })
+    #@   params.append({ "name": "git-url", "value": data.values.workload.spec.source.git.url })
+    #@   params.append({ "name": "git-branch", "value": data.values.workload.spec.source.git.ref.branch })
+    #@   return params
+    #@ end
+    
+    ---
+    apiVersion: tekton.dev/v1
+    kind: TaskRun
+    metadata:
+      generateName: #@ data.values.workload.metadata.name + "-module-detector-"
+      labels: #@ merge_labels({ "app.kubernetes.io/component": "module-detector" })
+    spec:
+      #@ if/end hasattr(data.values.workload.spec, "serviceAccountName"):
+      serviceAccountName: #@ data.values.workload.spec.serviceAccountName
+      params: #@ merged_tekton_params()
+      taskRef:
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: namespace
+            value: tap-tasks
+          - name: name
+            value: detect-java-module

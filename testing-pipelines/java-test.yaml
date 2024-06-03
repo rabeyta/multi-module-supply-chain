@@ -1,0 +1,61 @@
+#@ load("@ytt:data", "data")
+#@ if/end hasattr(data.values, "language") and data.values.language == "java":
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: developer-defined-tekton-pipeline-java
+  labels:
+    apps.tanzu.vmware.com/pipeline: test
+    apps.tanzu.vmware.com/language: java
+  annotations:
+    kapp.k14s.io/create-strategy: fallback-on-update
+spec:
+  params:
+    - name: source-url
+    - name: source-revision
+    - name: module
+      default: ""
+  tasks:
+    - name: test
+      params:
+        - name: source-url
+          value: $(params.source-url)
+        - name: source-revision
+          value: $(params.source-revision)
+        - name: module
+          value: $(params.module)
+      taskSpec:
+        volumes:
+          - name: gradle-properties
+            secret:
+              secretName: gradle-properties
+        params:
+          - name: source-url
+          - name: source-revision
+          - name: module
+        steps:
+          - name: test
+            image: cxscssa.azurecr.io/dockerhub-proxy-cache/library/gradle
+            volumeMounts:
+              - mountPath: /opt/gradle/gradle.properties
+                name: gradle-properties
+                subPath: gradle.properties
+                readOnly: true
+            script: |-
+              cd `mktemp -d`
+              wget -qO- $(params.source-url) | tar xvz -m
+              pwd
+              ls -la /opt/gradle
+              if [ -f "mvnw" ]; then
+                  ./mvnw test
+              elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+                  if [ ! -z "$(params.module)" ]; then
+                    gradle :$(params.module):test --no-daemon
+                  else
+                    gradle test --no-daemon
+                  fi
+              else
+                  echo "WARNING: No tests were run. This workload is not built with one of the currently supported frameworks (maven or gradle). If using another language/framework, update the image and the script sections of the 'pipeline.tekton.dev' resource in your namespace to match your language/framework."
+                  #exit 1
+              fi
