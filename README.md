@@ -280,3 +280,11 @@ The task will perform the following logic on the inputs.
 3. clone the input repository url and checkout the input branch
 4. run the gradle command to identify which modules are affected by the latest commit
 5. if the input module is in the output of affected modules, the input source-url and revision are output as results. otherwise the prior url and revision are returned to enable no further work to be completed
+
+# tap-gui
+
+Output revision is the same for source provider, module detector and source tester when the commit should be acted upon
+![tap-gui commit is built](docs/tap-gui-commit-is-built.png)
+
+Output revision is not the same for source provider and module detector as the commit should not have been acted upon
+![tap-gui commit is not built.png](docs/tap-gui_commit_is_not_built.png)
