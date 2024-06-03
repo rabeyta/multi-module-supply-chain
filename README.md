@@ -20,7 +20,7 @@ The components involved are
 * [AffectedModuleDetector](https://github.com/dropbox/AffectedModuleDetector) Gradle plugin to determine impacted modules from commits
 * Gradle task that utilizes the `AffectedModuleDetector` plugin to identify impacted modules
 
-# repo config
+# repo
 
 We need to update the multimodule project with a common task that can be called from the `AffectedModuleDetector` plugin to allow us to identify if a given module needs built or not. 
 
@@ -62,7 +62,7 @@ tasks.register("printProjectName") {
 gradle printProjectsImpacted -Paffected_module_detector.enable --no-daemon
 ```
 
-# workload config
+# workload
 
 ## build env
 
@@ -93,9 +93,9 @@ spec:
         module: "tanzu-java-web-app-1"
 ```
 
-the `module` param will be read in the testing pipeline in addition to the module detector to instruct these components which gradle module it needs to focus on
+the `module` param will be read in the [testing pipeline](./testing-pipelines/java-test.yaml) in addition to the module detector to instruct these components which gradle module it needs to focus on
 
-# test logic
+# test pipeline
 
 ```yaml
 spec:
@@ -133,4 +133,137 @@ else
 fi
 ```
 
+# detect module
 
+## supply-chain 
+
+Within the [supply chain](./supply-chain/multi-module-detect-sc.yaml), the module-detector `ClusterSourceTemplate` sits inbetween the source-provider and source-tester to act as a gatekeeper for changes.
+
+The source-provider will emit url and revision for every commit of a given repository being watched.
+
+The module-detector determines if the commit impacts this workload, and if it does, it outputs the input url and revision for the source-tester to test. 
+
+If the commit does not impact the module, the prior successful output from source-tester is output from module-detector and no further work is done based on this commit. 
+
+```yaml
+  resources:
+    - name: source-provider
+      templateRef:
+        kind: ClusterSourceTemplate
+        name: source-template
+      params:
+        - name: serviceAccount
+          default: #@ data.values.service_account
+        - name: gitImplementation
+          default: #@ data.values.git_implementation
+
+    - name: module-detector
+      templateRef:
+        kind: ClusterSourceTemplate
+        name: java-module-detector
+      sources:
+        - resource: source-provider
+          name: source
+
+    - name: source-tester
+      templateRef:
+        kind: ClusterSourceTemplate
+        name: testing-pipeline
+      sources:
+        - resource: module-detector
+          name: source
+```
+
+## module-detector-source-template
+
+The goal of this [ClusterSourceTemplate](./templates/module-detector-source-template.yaml) is to produce a Tekton TaskRun that will output url and revision to be output from this template
+
+```yaml
+apiVersion: carto.run/v1alpha1
+kind: ClusterSourceTemplate
+metadata:
+  name: java-module-detector
+spec:
+  urlPath: .status.results[?(@.name=="url")].value
+  revisionPath: .status.results[?(@.name=="revision")].value
+
+```
+
+The template will gather inputs from the workload to build the params for the TaskRun and then create the CR
+
+
+```yaml
+
+#@ def merged_tekton_params():
+#@   params = []
+#@   if hasattr(data.values, "params") and hasattr(data.values.params, "testing_pipeline_params"):
+#@     for param in data.values.params["testing_pipeline_params"]:
+#@       params.append({ "name": param, "value": data.values.params["testing_pipeline_params"][param] })
+#@     end
+#@   end
+#@   resources = data.values.workload.status.resources
+#@   priorUrl = ""
+#@   priorRevision = ""
+#@   if len(resources) > 2 and hasattr(resources[2], "outputs"):
+#@     priorUrl = resources[2].outputs[0].preview
+#@     priorRevision = resources[2].outputs[1].preview
+#@   end
+#@   params.append({ "name": "source-url", "value": data.values.sources.source.url })
+#@   params.append({ "name": "source-revision", "value": data.values.sources.source.revision })
+#@   params.append({ "name": "prior-url", "value": priorUrl })
+#@   params.append({ "name": "prior-revision", "value": priorRevision })
+#@   params.append({ "name": "git-url", "value": data.values.workload.spec.source.git.url })
+#@   params.append({ "name": "git-branch", "value": data.values.workload.spec.source.git.ref.branch })
+#@   return params
+#@ end
+
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: #@ data.values.workload.metadata.name + "-module-detector-"
+  labels: #@ merge_labels({ "app.kubernetes.io/component": "module-detector" })
+spec:
+  #@ if/end hasattr(data.values.workload.spec, "serviceAccountName"):
+  serviceAccountName: #@ data.values.workload.spec.serviceAccountName
+  params: #@ merged_tekton_params()
+  taskRef:
+    resolver: cluster
+    params:
+      - name: kind
+        value: task
+      - name: namespace
+        value: tap-tasks
+      - name: name
+        value: detect-java-module
+```
+
+## detect-java-module-task
+
+[module-detector-task](./tasks/module-detector-task.yaml)
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: detect-java-module
+  namespace: tap-tasks
+spec:
+  params:
+    - name: source-url
+    - name: source-revision
+    - name: prior-url
+    - name: prior-revision
+    - name: git-url
+    - name: git-branch
+    - name: module
+  results:
+    - name: url
+    - name: revision
+```
+
+The task will perform the following logic on the inputs.
+
+1. if there is no prior information, it returns the input source-url and revision as this is a new run with no history
+2. if the source and prior revisions are the same, source revision and url is returned with no further work needs done as this should be a no-op
+3. clone the input repository url and checkout the input branch
+4. run the gradle command to identify which modules are affected by the latest commit
+5. if the input module is in the output of affected modules, the input source-url and revision are output as results. otherwise the prior url and revision are returned to enable no further work to be completed
