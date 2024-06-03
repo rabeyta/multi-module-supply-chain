@@ -1,6 +1,6 @@
 # multi-module-supply-chain
 
-Purpose of this repo is to demonstrate how we can support a java mono repo utilizing gradle within [Tanzu Application Platform](https://docs.vmware.com/en/VMware-Tanzu-Application-Platform/index.html) supply chain v1 ([Cartographer](https://cartographer.sh/) based).
+Purpose of this repo is to demonstrate how we can optimize building a java mono repo utilizing gradle within [Tanzu Application Platform](https://docs.vmware.com/en/VMware-Tanzu-Application-Platform/index.html) supply chain v1 ([Cartographer](https://cartographer.sh/) based).
 
 Verified on [v1.10.0](https://docs.vmware.com/en/VMware-Tanzu-Application-Platform/1.10/tap/overview.html)
 
@@ -288,3 +288,6 @@ Output revision is the same for source provider, module detector and source test
 
 Output revision is not the same for source provider and module detector as the commit should not have been acted upon
 ![tap-gui commit is not built.png](docs/tap-gui_commit_is_not_built.png)
+
+# infographic
+![info-graphic.png](docs/info-graphic.png)
