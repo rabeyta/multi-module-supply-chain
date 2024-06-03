@@ -20,6 +20,48 @@ The components involved are
 * [AffectedModuleDetector](https://github.com/dropbox/AffectedModuleDetector) Gradle plugin to determine impacted modules from commits
 * Gradle task that utilizes the `AffectedModuleDetector` plugin to identify impacted modules
 
+# repo config
+
+We need to update the multimodule project with a common task that can be called from the `AffectedModuleDetector` plugin to allow us to identify if a given module needs built or not. 
+
+This Gradle task will be called from the Tekton task `detect-java-module` and it will allow the task to determine if it needs to return the new revision (impacted by new commit) or a prior one (not impacted by new commit)
+
+## affected module detector config
+
+Example `AffectedModuleDetector` config that defines a common task that can called for each affected modules when running
+
+```groovy
+affectedModuleDetector {
+    baseDir = "${project.rootDir}"
+    pathsAffectingAllModules = setOf("gradle/", "config/")
+    logFilename = "output.log"
+    logFolder = "${project.rootDir}/affectedModuleDetector"
+    specifiedBranch = "main"
+    compareFrom = "PreviousCommit" //default is PreviousCommit
+    ignoredFiles = setOf(".*\\.md", ".*\\.txt", ".*README")
+    includeUncommitted = true
+    customTasks = setOf(
+            AffectedModuleConfiguration.CustomTask("printProjectsImpacted", "printProjectName", "print name")
+    )
+}
+```
+
+## gradle task for each project
+example task for a given module
+``` groovy
+tasks.register("printProjectName") {
+    doLast {
+        println("app-1")
+    }
+}
+```
+
+## gradle command to determine affected modules
+
+```shell
+gradle printProjectsImpacted -Paffected_module_detector.enable --no-daemon
+```
+
 # workload config
 
 ## build env
