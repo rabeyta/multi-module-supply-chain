@@ -17,8 +17,8 @@ spec:
         - server
         - hpa-server
   selector:
+    apps.tanzu.vmware.com/has-tests: "true"
     apps.tanzu.vmware.com/multi-module: "true"
-    apps.tanzu.vmware.com/language: java
 
   resources:
     - name: source-provider

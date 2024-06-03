@@ -64,6 +64,19 @@ gradle printProjectsImpacted -Paffected_module_detector.enable --no-daemon
 
 # workload
 
+## supply chain labels
+
+```yaml
+apiVersion: carto.run/v1alpha1
+kind: Workload
+metadata:
+  name: tanzu-java-web-app-1
+  labels:
+    apps.tanzu.vmware.com/multi-module: "true"
+    apps.tanzu.vmware.com/has-tests: "true"
+    apps.tanzu.vmware.com/workload-type: web
+```
+
 ## build env
 
 ```yaml
