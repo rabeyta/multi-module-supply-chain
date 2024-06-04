@@ -1,0 +1,27 @@
+FROM golang:1.22 AS build-stage
+
+RUN apt-get update && \
+    apt-get install -y nodejs npm make docker.io git zip unzip bash
+
+RUN npm update -g npm
+
+RUN npm install webpack -g && \
+    npm install -g yarn
+
+RUN wget -c https://github.com/stedolan/jq/releases/download/jq-1.7.1/jq-linux-amd64 -O /usr/local/bin/jq
+RUN chmod +x /usr/local/bin/jq
+
+RUN wget -c https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64 -O /usr/local/bin/yq
+RUN chmod +x /usr/local/bin/yq
+
+RUN wget -O- https://carvel.dev/install.sh | bash
+
+RUN wget -O- https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s latest
+
+RUN wget -c https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb -O /tmp/jdk-21_linux-x64_bin.deb
+RUN apt install /tmp/jdk-21_linux-x64_bin.deb
+
+RUN wget -c https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle-8.7-bin.zip
+RUN mkdir /opt/gradle
+RUN unzip -d /opt/gradle /tmp/gradle-8.7-bin.zip
+ENV PATH=$PATH:/opt/gradle/gradle-8.7/bin
