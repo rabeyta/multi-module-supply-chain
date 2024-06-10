@@ -74,7 +74,7 @@ spec:
             git checkout "$(params.git-branch)"
             
             # run gradle and store output
-            GRADLE_OUTPUT=$(gradle printProjectsImpacted -Paffected_module_detector.enable --no-daemon)
+            GRADLE_OUTPUT=$(gradle printProjectsImpacted -Paffected_module_detector.enable -Dorg.gradle.welcome=never --no-daemon)
             MODULE_DETECTED=$(echo $GRADLE_OUTPUT | grep -i $(params.module))
             
             # print for logging
